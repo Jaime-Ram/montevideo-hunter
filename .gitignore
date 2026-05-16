@@ -1,0 +1,17 @@
+# Grote data-bestanden (niet in git)
+checkpoint.json
+prospects.csv
+prospects_gefilterd.csv
+openingstijden.json
+voortgang.json
+
+# Gegenereerde kaarten (kaart_mobile.html WEL inchecken voor Vercel)
+kaart_prospects.html
+kaart_gefilterd.html
+
+# Python
+__pycache__/
+*.pyc
+.env
+venv/
+.venv/
