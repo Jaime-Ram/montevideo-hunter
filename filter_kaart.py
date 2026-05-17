@@ -547,7 +547,7 @@ function exportCSV(){{
   var rijen=[['Naam','Status','Notitie','Categorie','Adres','Telefoon','Maps URL','Tijd']];
   DATA.forEach(function(p){{var vg=voortgang[p.id];if(!vg||!vg.status)return;rijen.push([p.n,NL[vg.status]||vg.status,vg.notitie||'',p.c,p.a,p.p||'',mapsUrl(p),vg.tijd||'']);}});
   if(rijen.length<=1){{alert('Nog geen bedrijven gemarkeerd.');return;}}
-  var csv=rijen.map(function(r){{return r.map(function(c){{return '"'+String(c).replace(/"/g,'""')+'"';}}).join(',');}}).join('\r\n');
+  var csv=rijen.map(function(r){{return r.map(function(c){{return '"'+String(c).replace(/"/g,'""')+'"';}}).join(',');}}).join('\\r\\n');
   var blob=new Blob(['﻿'+csv],{{type:'text/csv;charset=utf-8;'}});
   var url=URL.createObjectURL(blob),a=document.createElement('a');
   a.href=url;a.download='voortgang_'+new Date().toISOString().slice(0,10)+'.csv';
