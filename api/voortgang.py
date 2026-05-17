@@ -11,13 +11,16 @@ KEY      = "voortgang"
 def _kv_get() -> dict:
     if not KV_URL:
         return {}
+    body = json.dumps([["GET", KEY]]).encode()
     req = urllib.request.Request(
-        f"{KV_URL}/get/{KEY}",
-        headers={"Authorization": f"Bearer {KV_TOKEN}"}
+        f"{KV_URL}/pipeline",
+        data=body,
+        headers={"Authorization": f"Bearer {KV_TOKEN}", "Content-Type": "application/json"},
     )
     try:
         with urllib.request.urlopen(req) as r:
-            raw = json.loads(r.read()).get("result")
+            result = json.loads(r.read())
+        raw = result[0].get("result") if result else None
         if not raw:
             return {}
         return json.loads(raw) if isinstance(raw, str) else raw
@@ -28,14 +31,11 @@ def _kv_get() -> dict:
 def _kv_set(d: dict):
     if not KV_URL:
         return
-    body = json.dumps({"value": json.dumps(d, ensure_ascii=False)}).encode()
+    body = json.dumps([["SET", KEY, json.dumps(d, ensure_ascii=False)]]).encode()
     req = urllib.request.Request(
-        f"{KV_URL}/set/{KEY}",
+        f"{KV_URL}/pipeline",
         data=body,
-        headers={
-            "Authorization": f"Bearer {KV_TOKEN}",
-            "Content-Type": "application/json",
-        },
+        headers={"Authorization": f"Bearer {KV_TOKEN}", "Content-Type": "application/json"},
     )
     urllib.request.urlopen(req)
 
