@@ -275,7 +275,7 @@ def main():
 def maak_mobiele_kaart(rows: list[dict], path: str):
     markers = []
     for r in rows:
-        kleur = CATEGORIEEN.get(r["categorie"], {}).get("kleur", "#CBD5E1")
+        social = r.get("social_url", "") or ""
         markers.append({
             "id": r.get("place_id", ""),
             "n":  r["name"],
@@ -284,11 +284,10 @@ def maak_mobiele_kaart(rows: list[dict], path: str):
             "r":  str(r.get("rating", "")),
             "rv": str(r.get("reviews", "")),
             "c":  r["categorie"],
-            "kl": kleur,
-            "s":  r.get("social_url", "") or "",
-            "m":  r.get("maps_url", "") or "",
-            "lt": r["lat"],
-            "ln": r["lon"],
+            # kl en m worden in JS afgeleid — scheelt ~500KB in data.json
+            "s":  social if social else None,
+            "lt": round(r["lat"], 5),
+            "ln": round(r["lon"], 5),
         })
 
     # Schrijf data apart — HTML hoeft alleen data.json te fetchen
@@ -460,9 +459,12 @@ var cluster=L.markerClusterGroup({{
   }}
 }});
 map.addLayer(cluster);
+var renderer=L.canvas({{padding:0.5}});
 
 // ── Popup ──────────────────────────────────────────────────────────────────
-function markerKleur(p){{var vg=voortgang[p.id],st=vg?vg.status:'';return STATUS_KLEUR[st]||p.kl;}}
+function catKleur(p){{return CATS[p.c]||'#CBD5E1';}}
+function markerKleur(p){{var vg=voortgang[p.id],st=vg?vg.status:'';return STATUS_KLEUR[st]||catKleur(p);}}
+function mapsUrl(p){{return 'https://www.google.com/maps/place/?q=place_id:'+p.id;}}
 
 function popupHtml(p){{
   activePopup={{pid:p.id,naam:p.n}};
@@ -473,12 +475,13 @@ function popupHtml(p){{
   var sb='<div class="pop-status">';
   STAT.forEach(function(sv){{var a=st===sv.s?' active':'';sb+='<button class="pop-sb'+a+'" data-s="'+sv.s+'" style="color:'+sv.c+';border-color:'+sv.c+'">'+sv.l+'</button>';}});
   sb+='</div>';
+  var kl=catKleur(p);
   return '<div class="pop-name">'+p.n+'</div>'+
-    '<div><span class="pop-badge" style="background:'+p.kl+'">'+p.c+'</span></div>'+
+    '<div><span class="pop-badge" style="background:'+kl+'">'+p.c+'</span></div>'+
     '<div class="pop-addr">'+p.a+'</div>'+
     (p.p?'<a class="pop-phone" href="tel:'+p.p+'">📞 '+p.p+'</a>':'')+
     (p.r?'<div class="pop-rating">⭐ '+p.r+' <span style="color:#aaa">('+p.rv+' reviews)</span></div>':'')+
-    '<a href="'+p.m+'" target="_blank" style="font-size:12px;color:#4285F4;display:block;margin-bottom:10px">🗺 Maps (openingstijden →)</a>'+
+    '<a href="'+mapsUrl(p)+'" target="_blank" style="font-size:12px;color:#4285F4;display:block;margin-bottom:10px">🗺 Maps (openingstijden →)</a>'+
     sb+'<textarea class="pop-note" id="nt_'+p.id+'" placeholder="Notitie...">'+(vg.notitie||'')+'</textarea>'+
     '<button class="pop-save">Opslaan</button>';
 }}
@@ -542,7 +545,7 @@ document.getElementById('btn-none').addEventListener('click',function(){{documen
 function exportCSV(){{
   var NL={{verkocht:'Verkocht',interesse:'Follow-up',later:'Later',nee:'Nee',dicht:'Dicht'}};
   var rijen=[['Naam','Status','Notitie','Categorie','Adres','Telefoon','Maps URL','Tijd']];
-  DATA.forEach(function(p){{var vg=voortgang[p.id];if(!vg||!vg.status)return;rijen.push([p.n,NL[vg.status]||vg.status,vg.notitie||'',p.c,p.a,p.p||'',p.m||'',vg.tijd||'']);}});
+  DATA.forEach(function(p){{var vg=voortgang[p.id];if(!vg||!vg.status)return;rijen.push([p.n,NL[vg.status]||vg.status,vg.notitie||'',p.c,p.a,p.p||'',mapsUrl(p),vg.tijd||'']);}});
   if(rijen.length<=1){{alert('Nog geen bedrijven gemarkeerd.');return;}}
   var csv=rijen.map(function(r){{return r.map(function(c){{return '"'+String(c).replace(/"/g,'""')+'"';}}).join(',');}}).join('\r\n');
   var blob=new Blob(['﻿'+csv],{{type:'text/csv;charset=utf-8;'}});
@@ -559,18 +562,35 @@ Promise.all([
 ]).then(function(res){{
   DATA=res[0]; voortgang=res[1];
   DATA.forEach(function(p,i){{pidToIdx[p.id]=i;}});
-  var counts={{}};
-  leafletMarkers=DATA.map(function(p){{
-    counts[p.c]=(counts[p.c]||0)+1;
-    var vg=voortgang[p.id],st=vg?vg.status:'';
-    var kl=STATUS_KLEUR[st]||p.kl;
-    var m=L.circleMarker([p.lt,p.ln],{{radius:8,color:st?kl:'#111',weight:st?2.5:1.5,fillColor:kl,fillOpacity:st==='nee'?0.4:0.9}});
-    m.bindPopup(function(){{return popupHtml(p);}},{{maxWidth:300,minWidth:240}});
-    return m;
-  }});
-  buildCatList(counts);
-  render();
+
+  // Kaart direct zichtbaar, markers komen in batches
   document.getElementById('loading').style.display='none';
+  document.getElementById('counter').textContent='Markers laden...';
+
+  leafletMarkers=new Array(DATA.length);
+  var counts={{}},i=0,BATCH=400;
+  function nextBatch(){{
+    var end=Math.min(i+BATCH,DATA.length),toAdd=[];
+    for(;i<end;i++){{
+      var p=DATA[i];
+      counts[p.c]=(counts[p.c]||0)+1;
+      var vg=voortgang[p.id],st=vg?vg.status:'';
+      var kl=STATUS_KLEUR[st]||catKleur(p);
+      var m=L.circleMarker([p.lt,p.ln],{{renderer:renderer,radius:7,
+        color:st?kl:'#111',weight:st?2:1,fillColor:kl,fillOpacity:st==='nee'?0.4:0.9}});
+      (function(pp){{m.bindPopup(function(){{return popupHtml(pp);}},{{maxWidth:300,minWidth:240}})}})(p);
+      leafletMarkers[i]=m;
+      if(selectedCats.has(p.c)) toAdd.push(m);
+    }}
+    cluster.addLayers(toAdd);
+    if(i<DATA.length){{
+      setTimeout(nextBatch,0);
+    }}else{{
+      buildCatList(counts);
+      document.getElementById('counter').textContent=DATA.length+' prospects';
+    }}
+  }}
+  nextBatch();
 }}).catch(function(){{
   document.getElementById('loading').innerHTML='<div>Fout bij laden — herlaad de pagina</div>';
 }});
