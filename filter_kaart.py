@@ -273,10 +273,6 @@ def main():
     print(f"Mobiele kaart: python3 server.py")
 
 def maak_mobiele_kaart(rows: list[dict], path: str):
-    cat_counts: dict[str, int] = {}
-    for r in rows:
-        cat_counts[r["categorie"]] = cat_counts.get(r["categorie"], 0) + 1
-
     markers = []
     for r in rows:
         kleur = CATEGORIEEN.get(r["categorie"], {}).get("kleur", "#CBD5E1")
@@ -295,15 +291,22 @@ def maak_mobiele_kaart(rows: list[dict], path: str):
             "ln": r["lon"],
         })
 
-    markers_js = json.dumps(markers, ensure_ascii=False, separators=(",", ":"))
-    cats_js    = json.dumps({n: i["kleur"] for n, i in CATEGORIEEN.items()}, ensure_ascii=False)
-    totaal     = len(markers)
+    # Schrijf data apart — HTML hoeft alleen data.json te fetchen
+    from pathlib import Path as _P
+    data_path = _P(path).parent / "data.json"
+    data_path.write_text(
+        json.dumps(markers, ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8"
+    )
+
+    cats_js = json.dumps({n: i["kleur"] for n, i in CATEGORIEEN.items()}, ensure_ascii=False)
+    totaal  = len(markers)
 
     html = f"""<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Montevideo {totaal}</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
@@ -311,6 +314,17 @@ def maak_mobiele_kaart(rows: list[dict], path: str):
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
 body{{font-family:-apple-system,system-ui,sans-serif;overflow:hidden}}
+#loading{{
+  position:fixed;inset:0;z-index:4000;background:#1e1e2e;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  color:#cba6f7;font-size:14px
+}}
+.spinner{{
+  width:38px;height:38px;border:3px solid #313244;
+  border-top-color:#cba6f7;border-radius:50%;
+  animation:spin .8s linear infinite
+}}
+@keyframes spin{{to{{transform:rotate(360deg)}}}}
 #map{{position:fixed;top:50px;left:0;right:0;bottom:0}}
 #topbar{{
   position:fixed;top:0;left:0;right:0;height:50px;z-index:1000;
@@ -397,9 +411,11 @@ input[type=checkbox]{{
 </head>
 <body>
 
+<div id="loading"><div class="spinner"></div><div>Kaart laden...</div></div>
+
 <div id="topbar">
   <span id="topbar-title">Montevideo</span>
-  <span id="counter">{totaal} prospects</span>
+  <span id="counter">Laden...</span>
   <button id="filter-btn">☰ Categorieën</button>
 </div>
 
@@ -425,221 +441,139 @@ input[type=checkbox]{{
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
-var DATA        = {markers_js};
 var CATS        = {cats_js};
-var STATUS_KLEUR = {{verkocht:'#22C55E',interesse:'#3B82F6',later:'#F97316',nee:'#6B7280',dicht:'#EAB308'}};
-var voortgang   = {{}};
-var pending     = {{}};
-var activePopup = {{pid:'',naam:''}};
-var selectedCats = new Set(Object.keys(CATS));
+var STATUS_KLEUR= {{verkocht:'#22C55E',interesse:'#3B82F6',later:'#F97316',nee:'#6B7280',dicht:'#EAB308'}};
+var DATA=[]; var leafletMarkers=[]; var pidToIdx={{}};
+var voortgang={{}}; var pending={{}}; var activePopup={{pid:'',naam:''}};
+var selectedCats=new Set(Object.keys(CATS));
 
-// ── Kaart ─────────────────────────────────────────────────────────────────
-var map = L.map('map',{{zoomControl:false}}).setView([-34.906,-56.160],14);
+// ── Kaart direct initialiseren (tiles laden terwijl data nog fetcht) ───────
+var map=L.map('map',{{zoomControl:false}}).setView([-34.906,-56.160],14);
 L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
   {{attribution:'© OSM',maxZoom:19}}).addTo(map);
 L.control.zoom({{position:'bottomright'}}).addTo(map);
-
-var cluster = L.markerClusterGroup({{
-  maxClusterRadius:55, disableClusteringAtZoom:17, chunkedLoading:true,
-  iconCreateFunction:function(c) {{
-    var n=c.getChildCount(), sz=n>100?44:n>30?38:32;
-    return L.divIcon({{
-      html:'<div style="background:#cba6f7;color:#1e1e2e;border-radius:50%;width:'+sz+'px;height:'+sz+'px;'+
-           'display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;'+
-           'box-shadow:0 2px 8px rgba(0,0,0,0.4)">'+n+'</div>',
-      className:'', iconSize:[sz,sz], iconAnchor:[sz/2,sz/2]
-    }});
+var cluster=L.markerClusterGroup({{
+  maxClusterRadius:55,disableClusteringAtZoom:17,chunkedLoading:true,
+  iconCreateFunction:function(c){{
+    var n=c.getChildCount(),sz=n>100?44:n>30?38:32;
+    return L.divIcon({{html:'<div style="background:#cba6f7;color:#1e1e2e;border-radius:50%;width:'+sz+'px;height:'+sz+'px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,.4)">'+n+'</div>',className:'',iconSize:[sz,sz],iconAnchor:[sz/2,sz/2]}});
   }}
 }});
 map.addLayer(cluster);
 
-var pidToIdx = {{}};
-DATA.forEach(function(p,i){{ pidToIdx[p.id]=i; }});
-
-// ── Marker kleur ───────────────────────────────────────────────────────────
-function markerKleur(p) {{
-  var vg=voortgang[p.id], st=vg?vg.status:'';
-  return STATUS_KLEUR[st] || p.kl;
-}}
-
 // ── Popup ──────────────────────────────────────────────────────────────────
-function popupHtml(p) {{
-  activePopup = {{pid:p.id, naam:p.n}};
-  var vg=voortgang[p.id]||{{}};
-  var pend=pending[p.id];
-  var st=pend!==undefined ? pend : (vg.status||'');
-  var STATUSSEN=[
-    {{s:'verkocht', l:'✅ Verkocht',  c:'#22C55E'}},
-    {{s:'interesse',l:'📞 Follow-up', c:'#3B82F6'}},
-    {{s:'later',    l:'🔄 Later',     c:'#F97316'}},
-    {{s:'nee',      l:'🚫 Nee',       c:'#6B7280'}},
-    {{s:'dicht',    l:'🔒 Dicht',     c:'#EAB308'}},
-  ];
+function markerKleur(p){{var vg=voortgang[p.id],st=vg?vg.status:'';return STATUS_KLEUR[st]||p.kl;}}
+
+function popupHtml(p){{
+  activePopup={{pid:p.id,naam:p.n}};
+  var vg=voortgang[p.id]||{{}},pend=pending[p.id];
+  var st=pend!==undefined?pend:(vg.status||'');
+  var STAT=[{{s:'verkocht',l:'✅ Verkocht',c:'#22C55E'}},{{s:'interesse',l:'📞 Follow-up',c:'#3B82F6'}},
+            {{s:'later',l:'🔄 Later',c:'#F97316'}},{{s:'nee',l:'🚫 Nee',c:'#6B7280'}},{{s:'dicht',l:'🔒 Dicht',c:'#EAB308'}}];
   var sb='<div class="pop-status">';
-  STATUSSEN.forEach(function(sv) {{
-    var a=st===sv.s?' active':'';
-    sb+='<button class="pop-sb'+a+'" data-s="'+sv.s+'" style="color:'+sv.c+';border-color:'+sv.c+'">'+sv.l+'</button>';
-  }});
+  STAT.forEach(function(sv){{var a=st===sv.s?' active':'';sb+='<button class="pop-sb'+a+'" data-s="'+sv.s+'" style="color:'+sv.c+';border-color:'+sv.c+'">'+sv.l+'</button>';}});
   sb+='</div>';
   return '<div class="pop-name">'+p.n+'</div>'+
     '<div><span class="pop-badge" style="background:'+p.kl+'">'+p.c+'</span></div>'+
     '<div class="pop-addr">'+p.a+'</div>'+
-    (p.p ? '<a class="pop-phone" href="tel:'+p.p+'">📞 '+p.p+'</a>' : '')+
-    (p.r ? '<div class="pop-rating">⭐ '+p.r+' <span style="color:#aaa">('+p.rv+' reviews)</span></div>' : '')+
+    (p.p?'<a class="pop-phone" href="tel:'+p.p+'">📞 '+p.p+'</a>':'')+
+    (p.r?'<div class="pop-rating">⭐ '+p.r+' <span style="color:#aaa">('+p.rv+' reviews)</span></div>':'')+
     '<a href="'+p.m+'" target="_blank" style="font-size:12px;color:#4285F4;display:block;margin-bottom:10px">🗺 Maps (openingstijden →)</a>'+
-    sb+
-    '<textarea class="pop-note" id="nt_'+p.id+'" placeholder="Notitie...">'+( vg.notitie||'')+'</textarea>'+
+    sb+'<textarea class="pop-note" id="nt_'+p.id+'" placeholder="Notitie...">'+(vg.notitie||'')+'</textarea>'+
     '<button class="pop-save">Opslaan</button>';
 }}
 
-function selStatus(status) {{
-  var pid=activePopup.pid;
-  pending[pid]=status;
-  document.querySelectorAll('.pop-sb').forEach(function(btn) {{
-    btn.classList.toggle('active', btn.dataset.s===status);
-  }});
+function selStatus(s){{
+  var pid=activePopup.pid; pending[pid]=s;
+  document.querySelectorAll('.pop-sb').forEach(function(b){{b.classList.toggle('active',b.dataset.s===s);}});
 }}
-
-function slaOp() {{
-  var pid=activePopup.pid, naam=activePopup.naam;
-  var st=pending[pid]!==undefined ? pending[pid] : (voortgang[pid] ? voortgang[pid].status : '');
-  var ntEl=document.getElementById('nt_'+pid);
-  var notitie=ntEl ? ntEl.value : '';
-  voortgang[pid]={{status:st, notitie:notitie}};
+function slaOp(){{
+  var pid=activePopup.pid,naam=activePopup.naam;
+  var st=pending[pid]!==undefined?pending[pid]:(voortgang[pid]?voortgang[pid].status:'');
+  var ntEl=document.getElementById('nt_'+pid), notitie=ntEl?ntEl.value:'';
+  voortgang[pid]={{status:st,notitie:notitie}};
   delete pending[pid];
   var idx=pidToIdx[pid];
-  if (idx!==undefined) {{
+  if(idx!==undefined){{
     var kl=markerKleur(DATA[idx]);
     leafletMarkers[idx].setStyle({{fillColor:kl,color:st?kl:'#111',weight:st?2.5:1.5,fillOpacity:st==='nee'?0.4:0.9}});
   }}
-  fetch('/api/voortgang',{{
-    method:'POST', headers:{{'Content-Type':'application/json'}},
-    body:JSON.stringify({{place_id:pid,naam:naam,status:st,notitie:notitie}})
-  }}).catch(function(){{}});
+  fetch('/api/voortgang',{{method:'POST',headers:{{'Content-Type':'application/json'}},
+    body:JSON.stringify({{place_id:pid,naam:naam,status:st,notitie:notitie}})}}).catch(function(){{}});
   map.closePopup();
 }}
 
-// ── Markers ────────────────────────────────────────────────────────────────
-var leafletMarkers = DATA.map(function(p) {{
-  var m=L.circleMarker([p.lt,p.ln],{{radius:8,color:'#111',weight:1.5,fillColor:p.kl,fillOpacity:0.9}});
-  m.bindPopup(function(){{return popupHtml(p);}},{{maxWidth:300,minWidth:240}});
-  return m;
-}});
-
 // ── Render ─────────────────────────────────────────────────────────────────
-function render() {{
+function render(){{
   var toShow=[];
-  DATA.forEach(function(p,i) {{
-    if (selectedCats.has(p.c)) toShow.push(leafletMarkers[i]);
-  }});
-  cluster.clearLayers();
-  cluster.addLayers(toShow);
-  document.getElementById('counter').textContent = toShow.length+' prospects';
+  DATA.forEach(function(p,i){{if(selectedCats.has(p.c))toShow.push(leafletMarkers[i]);}});
+  cluster.clearLayers();cluster.addLayers(toShow);
+  document.getElementById('counter').textContent=toShow.length+' prospects';
 }}
 
 // ── Filter panel ───────────────────────────────────────────────────────────
-function openFilter() {{
-  document.getElementById('fp').classList.add('open');
-  document.getElementById('overlay').classList.add('open');
-  document.getElementById('filter-btn').classList.add('active');
-}}
-function closeFilter() {{
-  document.getElementById('fp').classList.remove('open');
-  document.getElementById('overlay').classList.remove('open');
-  document.getElementById('filter-btn').classList.remove('active');
-}}
+function openFilter(){{document.getElementById('fp').classList.add('open');document.getElementById('overlay').classList.add('open');document.getElementById('filter-btn').classList.add('active');}}
+function closeFilter(){{document.getElementById('fp').classList.remove('open');document.getElementById('overlay').classList.remove('open');document.getElementById('filter-btn').classList.remove('active');}}
 
-// Categorielijst opbouwen (gesorteerd op aantal)
-var catCounts={{}};
-DATA.forEach(function(p){{ catCounts[p.c]=(catCounts[p.c]||0)+1; }});
-var catsSorted=Object.keys(catCounts).sort(function(a,b){{return catCounts[b]-catCounts[a];}});
-var fpList=document.getElementById('fp-list');
-catsSorted.forEach(function(cat) {{
-  var cnt=catCounts[cat], kleur=CATS[cat]||'#CBD5E1';
-  var row=document.createElement('label');
-  row.className='fp-row';
-  row.innerHTML=
-    '<input type="checkbox" checked data-cat="'+cat+'">'+
-    '<span class="fp-dot" style="background:'+kleur+'"></span>'+
-    '<span class="fp-label">'+cat+'</span>'+
-    '<span class="fp-cnt">'+cnt+'</span>';
-  row.querySelector('input').addEventListener('change',function() {{
-    if(this.checked) selectedCats.add(cat); else selectedCats.delete(cat);
-    render();
+function buildCatList(counts){{
+  var fpList=document.getElementById('fp-list'); fpList.innerHTML='';
+  var sorted=Object.keys(counts).sort(function(a,b){{return counts[b]-counts[a];}});
+  sorted.forEach(function(cat){{
+    var cnt=counts[cat],kleur=CATS[cat]||'#CBD5E1';
+    var row=document.createElement('label'); row.className='fp-row';
+    row.innerHTML='<input type="checkbox" checked data-cat="'+cat+'"><span class="fp-dot" style="background:'+kleur+'"></span><span class="fp-label">'+cat+'</span><span class="fp-cnt">'+cnt+'</span>';
+    row.querySelector('input').addEventListener('change',function(){{if(this.checked)selectedCats.add(cat);else selectedCats.delete(cat);render();}});
+    fpList.appendChild(row);
   }});
-  fpList.appendChild(row);
-}});
+}}
 
-// ── Event delegation (popup knoppen) ───────────────────────────────────────
-document.addEventListener('click',function(e) {{
-  var sb=e.target.closest&&e.target.closest('.pop-sb');
-  if (sb) {{selStatus(sb.dataset.s);return;}}
-  var sv=e.target.closest&&e.target.closest('.pop-save');
-  if (sv) {{slaOp();return;}}
+// ── Event delegation ───────────────────────────────────────────────────────
+document.addEventListener('click',function(e){{
+  var sb=e.target.closest&&e.target.closest('.pop-sb'); if(sb){{selStatus(sb.dataset.s);return;}}
+  var sv=e.target.closest&&e.target.closest('.pop-save'); if(sv){{slaOp();return;}}
 }});
-
-// ── Knop-listeners ─────────────────────────────────────────────────────────
 document.getElementById('filter-btn').addEventListener('click',openFilter);
 document.getElementById('fp-close').addEventListener('click',closeFilter);
 document.getElementById('overlay').addEventListener('click',closeFilter);
+document.getElementById('btn-all').addEventListener('click',function(){{document.querySelectorAll('[data-cat]').forEach(function(cb){{cb.checked=true;selectedCats.add(cb.dataset.cat);}});render();}});
+document.getElementById('btn-none').addEventListener('click',function(){{document.querySelectorAll('[data-cat]').forEach(function(cb){{cb.checked=false;selectedCats.delete(cb.dataset.cat);}});render();}});
 
-document.getElementById('btn-all').addEventListener('click',function() {{
-  document.querySelectorAll('[data-cat]').forEach(function(cb){{cb.checked=true;selectedCats.add(cb.dataset.cat);}});
-  render();
-}});
-document.getElementById('btn-none').addEventListener('click',function() {{
-  document.querySelectorAll('[data-cat]').forEach(function(cb){{cb.checked=false;selectedCats.delete(cb.dataset.cat);}});
-  render();
-}});
-
-// ── Export naar CSV (opent in Excel) ──────────────────────────────────────
-function exportCSV() {{
-  var STATUS_NL = {{verkocht:'Verkocht',interesse:'Follow-up',later:'Later',nee:'Nee',dicht:'Dicht'}};
-  var rijen = [['Naam','Status','Notitie','Categorie','Adres','Telefoon','Maps URL','Tijd']];
-  DATA.forEach(function(p) {{
-    var vg = voortgang[p.id];
-    if (!vg || !vg.status) return;
-    rijen.push([
-      p.n,
-      STATUS_NL[vg.status] || vg.status,
-      vg.notitie || '',
-      p.c,
-      p.a,
-      p.p || '',
-      p.m || '',
-      vg.tijd || ''
-    ]);
-  }});
-  if (rijen.length <= 1) {{
-    alert('Nog geen bedrijven gemarkeerd om te exporteren.');
-    return;
-  }}
-  var csv = rijen.map(function(r) {{
-    return r.map(function(c) {{ return '"' + String(c).replace(/"/g,'""') + '"'; }}).join(',');
-  }}).join('\r\n');
-  var blob = new Blob(['﻿' + csv], {{type:'text/csv;charset=utf-8;'}});
-  var url  = URL.createObjectURL(blob);
-  var a    = document.createElement('a');
-  var datum = new Date().toISOString().slice(0,10);
-  a.href = url; a.download = 'voortgang_' + datum + '.csv';
-  document.body.appendChild(a); a.click();
-  document.body.removeChild(a); URL.revokeObjectURL(url);
+// ── Export CSV ─────────────────────────────────────────────────────────────
+function exportCSV(){{
+  var NL={{verkocht:'Verkocht',interesse:'Follow-up',later:'Later',nee:'Nee',dicht:'Dicht'}};
+  var rijen=[['Naam','Status','Notitie','Categorie','Adres','Telefoon','Maps URL','Tijd']];
+  DATA.forEach(function(p){{var vg=voortgang[p.id];if(!vg||!vg.status)return;rijen.push([p.n,NL[vg.status]||vg.status,vg.notitie||'',p.c,p.a,p.p||'',p.m||'',vg.tijd||'']);}});
+  if(rijen.length<=1){{alert('Nog geen bedrijven gemarkeerd.');return;}}
+  var csv=rijen.map(function(r){{return r.map(function(c){{return '"'+String(c).replace(/"/g,'""')+'"';}}).join(',');}}).join('\r\n');
+  var blob=new Blob(['﻿'+csv],{{type:'text/csv;charset=utf-8;'}});
+  var url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download='voortgang_'+new Date().toISOString().slice(0,10)+'.csv';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
 }}
-document.getElementById('btn-export').addEventListener('click', exportCSV);
+document.getElementById('btn-export').addEventListener('click',exportCSV);
 
-// ── Voortgang laden ────────────────────────────────────────────────────────
-fetch('/api/voortgang').then(function(r){{return r.json();}}).then(function(d){{
-  voortgang=d;
-  DATA.forEach(function(p,i) {{
-    var vg=voortgang[p.id], st=vg?vg.status:'';
-    if (st) {{
-      var kl=markerKleur(p);
-      leafletMarkers[i].setStyle({{fillColor:kl,color:kl,weight:2.5,fillOpacity:st==='nee'?0.4:0.9}});
-    }}
+// ── Data + voortgang parallel laden ───────────────────────────────────────
+Promise.all([
+  fetch('/data.json').then(function(r){{return r.json();}}),
+  fetch('/api/voortgang').then(function(r){{return r.json();}}).catch(function(){{return {{}};}})
+]).then(function(res){{
+  DATA=res[0]; voortgang=res[1];
+  DATA.forEach(function(p,i){{pidToIdx[p.id]=i;}});
+  var counts={{}};
+  leafletMarkers=DATA.map(function(p){{
+    counts[p.c]=(counts[p.c]||0)+1;
+    var vg=voortgang[p.id],st=vg?vg.status:'';
+    var kl=STATUS_KLEUR[st]||p.kl;
+    var m=L.circleMarker([p.lt,p.ln],{{radius:8,color:st?kl:'#111',weight:st?2.5:1.5,fillColor:kl,fillOpacity:st==='nee'?0.4:0.9}});
+    m.bindPopup(function(){{return popupHtml(p);}},{{maxWidth:300,minWidth:240}});
+    return m;
   }});
-}}).catch(function(){{}});
-
-render();
+  buildCatList(counts);
+  render();
+  document.getElementById('loading').style.display='none';
+}}).catch(function(){{
+  document.getElementById('loading').innerHTML='<div>Fout bij laden — herlaad de pagina</div>';
+}});
 </script>
 </body>
 </html>"""
