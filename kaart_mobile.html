@@ -253,15 +253,10 @@ function exportCSV(){
 }
 document.getElementById('btn-export').addEventListener('click',exportCSV);
 
-// ── Data + voortgang parallel laden ───────────────────────────────────────
-Promise.all([
-  fetch('/data.json').then(function(r){return r.json();}),
-  fetch('/api/voortgang').then(function(r){return r.json();}).catch(function(){return {};})
-]).then(function(res){
-  DATA=res[0]; voortgang=res[1];
+// ── Data laden → kaart direct zichtbaar ───────────────────────────────────
+fetch('/data.json').then(function(r){return r.json();}).then(function(data){
+  DATA=data;
   DATA.forEach(function(p,i){pidToIdx[p.id]=i;});
-
-  // Kaart direct zichtbaar, markers komen in batches
   document.getElementById('loading').style.display='none';
   document.getElementById('counter').textContent='Markers laden...';
 
@@ -272,10 +267,9 @@ Promise.all([
     for(;i<end;i++){
       var p=DATA[i];
       counts[p.c]=(counts[p.c]||0)+1;
-      var vg=voortgang[p.id],st=vg?vg.status:'';
-      var kl=STATUS_KLEUR[st]||catKleur(p);
+      var kl=catKleur(p);
       var m=L.circleMarker([p.lt,p.ln],{renderer:renderer,radius:7,
-        color:st?kl:'#111',weight:st?2:1,fillColor:kl,fillOpacity:st==='nee'?0.4:0.9});
+        color:'#111',weight:1,fillColor:kl,fillOpacity:0.9});
       (function(pp){m.bindPopup(function(){return popupHtml(pp);},{maxWidth:300,minWidth:240})})(p);
       leafletMarkers[i]=m;
       if(selectedCats.has(p.c)) toAdd.push(m);
@@ -286,12 +280,26 @@ Promise.all([
     }else{
       buildCatList(counts);
       document.getElementById('counter').textContent=DATA.length+' prospects';
+      laadVoortgang();
     }
   }
   nextBatch();
 }).catch(function(){
-  document.getElementById('loading').innerHTML='<div>Fout bij laden — herlaad de pagina</div>';
+  document.getElementById('loading').innerHTML='<div style="text-align:center">Fout bij laden.<br>Herlaad de pagina.</div>';
 });
+
+// ── Voortgang laden nadat markers klaar zijn ───────────────────────────────
+function laadVoortgang(){
+  fetch('/api/voortgang').then(function(r){return r.json();}).then(function(d){
+    voortgang=d;
+    DATA.forEach(function(p,idx){
+      var vg=voortgang[p.id],st=vg?vg.status:'';
+      if(!st) return;
+      var kl=STATUS_KLEUR[st];
+      leafletMarkers[idx].setStyle({fillColor:kl,color:kl,weight:2,fillOpacity:st==='nee'?0.4:0.9});
+    });
+  }).catch(function(){});
+}
 </script>
 </body>
 </html>
