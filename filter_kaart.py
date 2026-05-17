@@ -353,7 +353,13 @@ body{{font-family:-apple-system,system-ui,sans-serif;overflow:hidden}}
 }}
 .fp-all{{background:#45475a;color:#cdd6f4}}
 .fp-none{{background:#313244;color:#888}}
-#fp-list{{overflow-y:auto;flex:1;padding-bottom:16px}}
+#fp-list{{overflow-y:auto;flex:1;padding-bottom:8px}}
+#fp-export{{padding:12px 14px;flex-shrink:0;border-top:1px solid #313244}}
+#btn-export{{
+  width:100%;padding:10px;background:#22C55E;color:white;
+  border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer
+}}
+#btn-export:active{{background:#16a34a}}
 .fp-row{{
   display:flex;align-items:center;gap:10px;
   padding:9px 16px;cursor:pointer;color:#cdd6f4
@@ -409,6 +415,9 @@ input[type=checkbox]{{
     <button class="fp-btn fp-none" id="btn-none">Alles uit</button>
   </div>
   <div id="fp-list"></div>
+  <div id="fp-export">
+    <button id="btn-export">📥 Exporteer naar Excel</button>
+  </div>
 </div>
 
 <div id="map"></div>
@@ -582,6 +591,41 @@ document.getElementById('btn-none').addEventListener('click',function() {{
   document.querySelectorAll('[data-cat]').forEach(function(cb){{cb.checked=false;selectedCats.delete(cb.dataset.cat);}});
   render();
 }});
+
+// ── Export naar CSV (opent in Excel) ──────────────────────────────────────
+function exportCSV() {{
+  var STATUS_NL = {{verkocht:'Verkocht',interesse:'Follow-up',later:'Later',nee:'Nee',dicht:'Dicht'}};
+  var rijen = [['Naam','Status','Notitie','Categorie','Adres','Telefoon','Maps URL','Tijd']];
+  DATA.forEach(function(p) {{
+    var vg = voortgang[p.id];
+    if (!vg || !vg.status) return;
+    rijen.push([
+      p.n,
+      STATUS_NL[vg.status] || vg.status,
+      vg.notitie || '',
+      p.c,
+      p.a,
+      p.p || '',
+      p.m || '',
+      vg.tijd || ''
+    ]);
+  }});
+  if (rijen.length <= 1) {{
+    alert('Nog geen bedrijven gemarkeerd om te exporteren.');
+    return;
+  }}
+  var csv = rijen.map(function(r) {{
+    return r.map(function(c) {{ return '"' + String(c).replace(/"/g,'""') + '"'; }}).join(',');
+  }}).join('\r\n');
+  var blob = new Blob(['﻿' + csv], {{type:'text/csv;charset=utf-8;'}});
+  var url  = URL.createObjectURL(blob);
+  var a    = document.createElement('a');
+  var datum = new Date().toISOString().slice(0,10);
+  a.href = url; a.download = 'voortgang_' + datum + '.csv';
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}}
+document.getElementById('btn-export').addEventListener('click', exportCSV);
 
 // ── Voortgang laden ────────────────────────────────────────────────────────
 fetch('/api/voortgang').then(function(r){{return r.json();}}).then(function(d){{
