@@ -21,7 +21,21 @@ body{font-family:-apple-system,system-ui,sans-serif;overflow:hidden}
   animation:spin .8s linear infinite
 }
 @keyframes spin{to{transform:rotate(360deg)}}
-#map{position:fixed;top:50px;left:0;right:0;bottom:0}
+#map{position:fixed;top:86px;left:0;right:0;bottom:0}
+#statusbar{
+  position:fixed;top:50px;left:0;right:0;height:36px;z-index:999;
+  background:rgba(20,20,30,0.92);backdrop-filter:blur(6px);
+  display:flex;align-items:center;padding:0 10px;gap:6px;
+  overflow-x:auto;-webkit-overflow-scrolling:touch;
+  border-bottom:1px solid #2a2a3e;scrollbar-width:none
+}
+#statusbar::-webkit-scrollbar{display:none}
+.sb-chip{
+  flex-shrink:0;padding:4px 11px;border-radius:20px;
+  border:1px solid #444;background:#2a2a3e;color:#9ca3af;
+  font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap
+}
+.sb-chip.active{background:#cba6f7;color:#1e1e2e;border-color:#cba6f7}
 #topbar{
   position:fixed;top:0;left:0;right:0;height:50px;z-index:1000;
   background:rgba(20,20,30,0.95);backdrop-filter:blur(8px);
@@ -126,6 +140,17 @@ input[type=checkbox]{
   <button id="filter-btn">☰ Categorieën</button>
 </div>
 
+<div id="statusbar">
+  <button class="sb-chip active" data-st="">Alles</button>
+  <button class="sb-chip" data-st="onbezocht">Onbezocht</button>
+  <button class="sb-chip" data-st="bezocht">Bezocht</button>
+  <button class="sb-chip" data-st="verkocht">✅ Verkocht</button>
+  <button class="sb-chip" data-st="interesse">📞 Follow-up</button>
+  <button class="sb-chip" data-st="later">🔄 Later</button>
+  <button class="sb-chip" data-st="nee">🚫 Nee</button>
+  <button class="sb-chip" data-st="dicht">🔒 Dicht</button>
+</div>
+
 <div id="overlay"></div>
 
 <div id="fp">
@@ -153,6 +178,8 @@ var STATUS_KLEUR= {verkocht:'#22C55E',interesse:'#3B82F6',later:'#F97316',nee:'#
 var DATA=[]; var leafletMarkers=[]; var pidToIdx={};
 var voortgang={}; var pending={}; var activePopup={pid:'',naam:''};
 var selectedCats=new Set(Object.keys(CATS));
+var selectedStatus=null;
+var CHIP_KLEUR={'':'#cba6f7','onbezocht':'#94A3B8','bezocht':'#a78bfa','verkocht':'#22C55E','interesse':'#3B82F6','later':'#F97316','nee':'#6B7280','dicht':'#EAB308'};
 
 // ── Kaart direct initialiseren (tiles laden terwijl data nog fetcht) ───────
 var map=L.map('map',{zoomControl:false}).setView([-34.906,-56.160],14);
@@ -224,7 +251,19 @@ function slaOp(){
 // ── Render ─────────────────────────────────────────────────────────────────
 function render(){
   var toShow=[];
-  DATA.forEach(function(p,i){if(selectedCats.has(p.c))toShow.push(leafletMarkers[i]);});
+  DATA.forEach(function(p,i){
+    if(!selectedCats.has(p.c)) return;
+    var st=(voortgang[p.id]&&voortgang[p.id].status)||'';
+    if(selectedStatus===null){
+      toShow.push(leafletMarkers[i]);
+    } else if(selectedStatus==='onbezocht'){
+      if(!st) toShow.push(leafletMarkers[i]);
+    } else if(selectedStatus==='bezocht'){
+      if(st) toShow.push(leafletMarkers[i]);
+    } else {
+      if(st===selectedStatus) toShow.push(leafletMarkers[i]);
+    }
+  });
   cluster.clearLayers();cluster.addLayers(toShow);
   document.getElementById('counter').textContent=toShow.length+' prospects';
 }
@@ -249,6 +288,17 @@ function buildCatList(counts){
 document.addEventListener('click',function(e){
   var sb=e.target.closest&&e.target.closest('.pop-sb'); if(sb){selStatus(sb.dataset.s);return;}
   var sv=e.target.closest&&e.target.closest('.pop-save'); if(sv){slaOp();return;}
+  var chip=e.target.closest&&e.target.closest('.sb-chip');
+  if(chip){
+    document.querySelectorAll('.sb-chip').forEach(function(c){
+      c.classList.remove('active');c.style.background='';c.style.color='';c.style.borderColor='';
+    });
+    var st=chip.dataset.st;
+    selectedStatus=st===''?null:st;
+    var kl=CHIP_KLEUR[st]||'#cba6f7';
+    chip.classList.add('active');chip.style.background=kl;chip.style.color='#1e1e2e';chip.style.borderColor=kl;
+    render();return;
+  }
 });
 document.getElementById('filter-btn').addEventListener('click',openFilter);
 document.getElementById('fp-close').addEventListener('click',closeFilter);
