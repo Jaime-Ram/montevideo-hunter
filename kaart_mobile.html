@@ -103,6 +103,17 @@ input[type=checkbox]{
   width:100%;background:#cba6f7;color:#1e1e2e;border:none;border-radius:8px;
   padding:9px;font-size:13px;font-weight:700;cursor:pointer;display:block
 }
+.loc-dot{
+  width:16px;height:16px;border-radius:50%;
+  background:#3B82F6;border:2.5px solid white;
+  box-shadow:0 0 0 0 rgba(59,130,246,0.5);
+  animation:pulse-loc 2s infinite
+}
+@keyframes pulse-loc{
+  0%{box-shadow:0 0 0 0 rgba(59,130,246,0.5)}
+  70%{box-shadow:0 0 0 10px rgba(59,130,246,0)}
+  100%{box-shadow:0 0 0 0 rgba(59,130,246,0)}
+}
 </style>
 </head>
 <body>
@@ -156,7 +167,14 @@ var cluster=L.markerClusterGroup({
   }
 });
 map.addLayer(cluster);
-var renderer=L.canvas({padding:0.5});
+// ── Marker icon helper ─────────────────────────────────────────────────────
+function maakMarkerIcon(kleur, heeftStatus){
+  var inner=heeftStatus?'<span style="color:white;font-size:9px;font-weight:900;line-height:14px">✓</span>':'';
+  return L.divIcon({
+    html:'<div style="background:'+kleur+';width:14px;height:14px;border-radius:50%;border:1.5px solid rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,0.3)">'+inner+'</div>',
+    className:'',iconSize:[14,14],iconAnchor:[7,7],popupAnchor:[0,-8]
+  });
+}
 
 // ── Popup ──────────────────────────────────────────────────────────────────
 function catKleur(p){return CATS[p.c]||'#CBD5E1';}
@@ -196,7 +214,7 @@ function slaOp(){
   var idx=pidToIdx[pid];
   if(idx!==undefined){
     var kl=markerKleur(DATA[idx]);
-    leafletMarkers[idx].setStyle({fillColor:kl,color:st?kl:'#111',weight:st?2.5:1.5,fillOpacity:st==='nee'?0.4:0.9});
+    leafletMarkers[idx].setIcon(maakMarkerIcon(kl,!!st));
   }
   fetch('/api/voortgang',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({place_id:pid,naam:naam,status:st,notitie:notitie})}).catch(function(){});
@@ -267,8 +285,7 @@ fetch('/data.json').then(function(r){return r.json();}).then(function(data){
       var p=DATA[i];
       counts[p.c]=(counts[p.c]||0)+1;
       var kl=catKleur(p);
-      var m=L.circleMarker([p.lt,p.ln],{renderer:renderer,radius:7,
-        color:'#111',weight:1,fillColor:kl,fillOpacity:0.9});
+      var m=L.marker([p.lt,p.ln],{icon:maakMarkerIcon(kl,false)});
       (function(pp){m.bindPopup(function(){return popupHtml(pp);},{maxWidth:300,minWidth:240})})(p);
       leafletMarkers[i]=m;
       if(selectedCats.has(p.c)) toAdd.push(m);
@@ -287,6 +304,20 @@ fetch('/data.json').then(function(r){return r.json();}).then(function(data){
   document.getElementById('loading').innerHTML='<div style="text-align:center">Fout bij laden.<br>Herlaad de pagina.</div>';
 });
 
+// ── Live locatie ───────────────────────────────────────────────────────────
+var locMarker=null;
+map.on('locationfound',function(e){
+  if(!locMarker){
+    locMarker=L.marker(e.latlng,{
+      icon:L.divIcon({html:'<div class="loc-dot"></div>',className:'',iconSize:[16,16],iconAnchor:[8,8]}),
+      zIndexOffset:1000
+    }).addTo(map);
+  } else {
+    locMarker.setLatLng(e.latlng);
+  }
+});
+map.locate({watch:true,enableHighAccuracy:true});
+
 // ── Voortgang laden nadat markers klaar zijn ───────────────────────────────
 function laadVoortgang(){
   fetch('/api/voortgang').then(function(r){return r.json();}).then(function(d){
@@ -295,7 +326,7 @@ function laadVoortgang(){
       var vg=voortgang[p.id],st=vg?vg.status:'';
       if(!st) return;
       var kl=STATUS_KLEUR[st];
-      leafletMarkers[idx].setStyle({fillColor:kl,color:kl,weight:2,fillOpacity:st==='nee'?0.4:0.9});
+      leafletMarkers[idx].setIcon(maakMarkerIcon(kl,true));
     });
   }).catch(function(){});
 }
