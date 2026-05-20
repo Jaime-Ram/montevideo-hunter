@@ -142,6 +142,7 @@ def maak_kaart(rows: list[dict], path: str):
             "rv": r.get("reviews", ""),
             "wl": web_label,
             "s":  r.get("social_url", "") or "",
+            "wt": r.get("web_type", "geen"),
             "m":  r.get("maps_url", "") or "",
             "lt": r["lat"],
             "ln": r["lon"],
@@ -195,6 +196,11 @@ body{{font-family:sans-serif;font-size:13px}}
 .cat-label{{flex:1;font-size:12px}}
 .cat-count{{color:#6c7086;font-size:11px}}
 input[type=checkbox]{{accent-color:#cba6f7;cursor:pointer}}
+.slider{{width:100%;accent-color:#cba6f7;cursor:pointer;margin-top:4px}}
+.filter-block{{padding:4px 16px 8px;flex-shrink:0}}
+.filter-row{{margin-bottom:10px}}
+.filter-label{{display:block;font-size:11px;color:#a6adc8;margin-bottom:2px}}
+.filter-val{{color:#cba6f7;font-weight:700}}
 #btn-row{{padding:10px 16px;display:flex;gap:8px;flex-shrink:0}}
 .btn{{flex:1;padding:6px;border-radius:6px;border:none;cursor:pointer;font-size:12px;font-weight:600}}
 .btn-all{{background:#45475a;color:#cdd6f4}}
@@ -208,6 +214,20 @@ input[type=checkbox]{{accent-color:#cba6f7;cursor:pointer}}
     <h2>Montevideo Prospects</h2>
     <div id="counter">Laden...</div>
   </div>
+  <div class="section-title">Gevestigdheid</div>
+  <div class="filter-block">
+    <div class="filter-row">
+      <label class="filter-label">Min. reviews: <span class="filter-val" id="lbl-reviews">0</span></label>
+      <input type="range" id="sl-reviews" min="0" max="300" step="10" value="0" class="slider">
+    </div>
+    <div class="filter-row">
+      <label class="filter-label">Min. beoordeling: <span class="filter-val" id="lbl-rating">0.0</span> ★</label>
+      <input type="range" id="sl-rating" min="0" max="5" step="0.5" value="0" class="slider">
+    </div>
+    <label class="cat-row"><input type="checkbox" id="cb-instagram">&nbsp;Heeft Instagram</label>
+    <label class="cat-row"><input type="checkbox" id="cb-social">&nbsp;Heeft social media</label>
+  </div>
+  <div class="divider"></div>
   <div class="section-title">Zones</div>
   <div id="zone-hint">Geen selectie = alles zichtbaar.</div>
   <div id="zone-list"></div>
@@ -232,7 +252,12 @@ MARKERS.forEach(function(m){{zoneCounts[m.z]=(zoneCounts[m.z]||0)+1;catCounts[m.
 var cluster=L.markerClusterGroup({{maxClusterRadius:55,disableClusteringAtZoom:17,chunkedLoading:true,iconCreateFunction:function(c){{var n=c.getChildCount(),sz=n>100?42:n>30?36:30;return L.divIcon({{html:'<div style="background:#cba6f7;color:#1e1e2e;border-radius:50%;width:'+sz+'px;height:'+sz+'px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;box-shadow:0 2px 6px rgba(0,0,0,0.4)">'+n+'</div>',className:'',iconSize:[sz,sz],iconAnchor:[sz/2,sz/2]}});}}}});
 map.addLayer(cluster);
 var leafletMarkers=MARKERS.map(function(p){{var m=L.circleMarker([p.lt,p.ln],{{radius:7,color:'#1e1e2e',weight:1.2,fillColor:p.kl,fillOpacity:0.92}});var social=p.s?'<br><a href="'+p.s+'" target="_blank" style="color:#cba6f7;font-size:12px">Social →</a>':'';m.bindPopup('<div style="font-family:sans-serif;min-width:210px"><b style="font-size:14px">'+p.n+'</b><br><span style="background:'+p.kl+';color:white;font-size:11px;padding:1px 7px;border-radius:4px">'+p.c+'</span><br><br><span style="color:#555;font-size:12px">'+p.a+'</span><br>☎ <b>'+p.p+'</b><br>★ '+p.r+' ('+p.rv+' reviews)'+social+'<br><a href="'+p.m+'" target="_blank" style="display:inline-block;margin-top:7px;background:#4285F4;color:white;padding:4px 10px;border-radius:5px;text-decoration:none;font-size:12px">Open in Maps</a></div>',{{maxWidth:260}});return m;}});
-function render(){{var toShow=[];var zA=selectedZones.size>0;MARKERS.forEach(function(p,i){{if((!zA||selectedZones.has(p.z))&&selectedCats.has(p.c))toShow.push(leafletMarkers[i]);}});cluster.clearLayers();cluster.addLayers(toShow);document.getElementById('counter').textContent=toShow.length+' van '+MARKERS.length+' prospects zichtbaar';}}
+var minReviews=0,minRating=0,onlyInstagram=false,onlySocial=false;
+function render(){{var toShow=[];var zA=selectedZones.size>0;MARKERS.forEach(function(p,i){{var rv=parseInt(p.rv)||0,rt=parseFloat(p.r)||0;if((!zA||selectedZones.has(p.z))&&selectedCats.has(p.c)&&rv>=minReviews&&rt>=minRating&&(!onlyInstagram||p.wt==='instagram')&&(!onlySocial||(p.wt==='instagram'||p.wt==='facebook')))toShow.push(leafletMarkers[i]);}});cluster.clearLayers();cluster.addLayers(toShow);document.getElementById('counter').textContent=toShow.length+' van '+MARKERS.length+' prospects zichtbaar';}}
+document.getElementById('sl-reviews').oninput=function(){{minReviews=parseInt(this.value);document.getElementById('lbl-reviews').textContent=minReviews+(this.value==='300'?'+':'');render();}};
+document.getElementById('sl-rating').oninput=function(){{minRating=parseFloat(this.value);document.getElementById('lbl-rating').textContent=minRating.toFixed(1);render();}};
+document.getElementById('cb-instagram').onchange=function(){{onlyInstagram=this.checked;if(this.checked){{document.getElementById('cb-social').checked=false;onlySocial=false;}}render();}};
+document.getElementById('cb-social').onchange=function(){{onlySocial=this.checked;if(this.checked){{document.getElementById('cb-instagram').checked=false;onlyInstagram=false;}}render();}};
 var zoneRects={{}};
 Object.keys(ZONES).forEach(function(naam){{var z=ZONES[naam],cnt=AANTALLEN[naam]||0;var rect=L.rectangle([z.sw,z.ne],{{color:z.kleur,weight:2.5,fillColor:z.kleur,fillOpacity:0.07,dashArray:'8,5'}});var mid=[(z.sw[0]+z.ne[0])/2,(z.sw[1]+z.ne[1])/2];var short=naam.replace(/^.*— /,'');L.marker(mid,{{icon:L.divIcon({{html:'<div style="background:rgba(30,30,46,0.82);color:'+z.kleur+';padding:3px 7px;border-radius:5px;font-size:11px;font-weight:700;white-space:nowrap;border:1px solid '+z.kleur+';pointer-events:none">'+short+'<span style="color:#6c7086;font-weight:400"> '+cnt+'</span></div>',className:'',iconAnchor:[0,0]}}),interactive:false,zIndexOffset:-100}}).addTo(map);rect.on('click',function(){{toggleZone(naam);}});rect.addTo(map);zoneRects[naam]=rect;}});
 function toggleZone(naam){{if(selectedZones.has(naam)){{selectedZones.delete(naam);zoneRects[naam].setStyle({{fillOpacity:0.08,weight:2}});document.querySelector('[data-zone="'+naam+'"]').classList.remove('active');}}else{{selectedZones.add(naam);zoneRects[naam].setStyle({{fillOpacity:0.25,weight:3}});document.querySelector('[data-zone="'+naam+'"]').classList.add('active');}}render();}}
