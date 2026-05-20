@@ -78,6 +78,14 @@ body{font-family:-apple-system,system-ui,sans-serif;overflow:hidden}
 .fp-all{background:#45475a;color:#cdd6f4}
 .fp-none{background:#313244;color:#888}
 #fp-list{overflow-y:auto;flex:1;padding-bottom:8px}
+#fp-quality{padding:10px 14px 4px;flex-shrink:0;border-bottom:1px solid #313244}
+.fq-title{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#6c7086;margin-bottom:8px}
+.fq-row{margin-bottom:10px}
+.fq-label{display:block;font-size:11px;color:#a6adc8;margin-bottom:3px}
+.fq-val{color:#cba6f7;font-weight:700}
+.fq-slider{width:100%;accent-color:#cba6f7;cursor:pointer;margin-top:2px}
+.fq-checks{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+.fq-check{display:flex;align-items:center;gap:5px;font-size:12px;color:#cdd6f4;cursor:pointer}
 #fp-export{padding:12px 14px;flex-shrink:0;border-top:1px solid #313244}
 #btn-export{
   width:100%;padding:10px;background:#22C55E;color:white;
@@ -162,6 +170,21 @@ input[type=checkbox]{
     <button class="fp-btn fp-all" id="btn-all">Alles aan</button>
     <button class="fp-btn fp-none" id="btn-none">Alles uit</button>
   </div>
+  <div id="fp-quality">
+    <div class="fq-title">Gevestigdheid</div>
+    <div class="fq-row">
+      <label class="fq-label">Min. reviews: <span class="fq-val" id="lbl-reviews">0</span></label>
+      <input type="range" id="sl-reviews" min="0" max="300" step="10" value="0" class="fq-slider">
+    </div>
+    <div class="fq-row">
+      <label class="fq-label">Min. beoordeling: <span class="fq-val" id="lbl-rating">0.0</span> ★</label>
+      <input type="range" id="sl-rating" min="0" max="5" step="0.5" value="0" class="fq-slider">
+    </div>
+    <div class="fq-checks">
+      <label class="fq-check"><input type="checkbox" id="cb-instagram" style="accent-color:#cba6f7"> Instagram</label>
+      <label class="fq-check"><input type="checkbox" id="cb-social" style="accent-color:#cba6f7"> Social media</label>
+    </div>
+  </div>
   <div id="fp-list"></div>
   <div id="fp-export">
     <button id="btn-export">📥 Exporteer naar Excel</button>
@@ -179,6 +202,7 @@ var DATA=[]; var leafletMarkers=[]; var pidToIdx={};
 var voortgang={}; var pending={}; var activePopup={pid:'',naam:''};
 var selectedCats=new Set(Object.keys(CATS));
 var selectedStatus=null;
+var minReviews=0,minRating=0,onlyInstagram=false,onlySocial=false;
 var CHIP_KLEUR={'':'#cba6f7','onbezocht':'#94A3B8','bezocht':'#a78bfa','verkocht':'#22C55E','interesse':'#3B82F6','later':'#F97316','nee':'#6B7280','dicht':'#EAB308'};
 
 // ── Kaart direct initialiseren (tiles laden terwijl data nog fetcht) ───────
@@ -253,6 +277,10 @@ function render(){
   var toShow=[];
   DATA.forEach(function(p,i){
     if(!selectedCats.has(p.c)) return;
+    var rv=parseInt(p.rv)||0, rt=parseFloat(p.r)||0;
+    if(rv<minReviews||rt<minRating) return;
+    if(onlyInstagram&&p.wt!=='instagram') return;
+    if(onlySocial&&p.wt!=='instagram'&&p.wt!=='facebook') return;
     var st=(voortgang[p.id]&&voortgang[p.id].status)||'';
     if(selectedStatus===null){
       toShow.push(leafletMarkers[i]);
@@ -305,6 +333,10 @@ document.getElementById('fp-close').addEventListener('click',closeFilter);
 document.getElementById('overlay').addEventListener('click',closeFilter);
 document.getElementById('btn-all').addEventListener('click',function(){document.querySelectorAll('[data-cat]').forEach(function(cb){cb.checked=true;selectedCats.add(cb.dataset.cat);});render();});
 document.getElementById('btn-none').addEventListener('click',function(){document.querySelectorAll('[data-cat]').forEach(function(cb){cb.checked=false;selectedCats.delete(cb.dataset.cat);});render();});
+document.getElementById('sl-reviews').addEventListener('input',function(){minReviews=parseInt(this.value);document.getElementById('lbl-reviews').textContent=minReviews+(this.value==='300'?'+':'');render();});
+document.getElementById('sl-rating').addEventListener('input',function(){minRating=parseFloat(this.value);document.getElementById('lbl-rating').textContent=minRating.toFixed(1);render();});
+document.getElementById('cb-instagram').addEventListener('change',function(){onlyInstagram=this.checked;if(this.checked){document.getElementById('cb-social').checked=false;onlySocial=false;}render();});
+document.getElementById('cb-social').addEventListener('change',function(){onlySocial=this.checked;if(this.checked){document.getElementById('cb-instagram').checked=false;onlyInstagram=false;}render();});
 
 // ── Export CSV ─────────────────────────────────────────────────────────────
 function exportCSV(){

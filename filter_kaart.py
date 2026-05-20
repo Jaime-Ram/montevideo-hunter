@@ -311,6 +311,7 @@ def maak_mobiele_kaart(rows: list[dict], path: str):
             "c":  r["categorie"],
             # kl en m worden in JS afgeleid — scheelt ~500KB in data.json
             "s":  social if social else None,
+            "wt": r.get("web_type", "geen"),
             "lt": round(r["lat"], 5),
             "ln": round(r["lon"], 5),
         })
